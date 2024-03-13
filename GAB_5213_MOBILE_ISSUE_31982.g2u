@@ -1,0 +1,146 @@
+Program.Sub.ScreenSU.Start
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'Programmed for GS Mobile
+'hook id 31982 - post process for WIR200 J55 transactions
+'by Brady Stevens
+'07/18/18
+'programmed for vRFC
+'purpose is to print RTS labels for seat track and non-seat track parts
+
+'Function.Intrinsic.Debug.InvokeDebugger
+'Function.Intrinsic.Debug.Stop
+
+V.Local.sQuery.Declare(String)
+V.Local.sQuery1.declare(String)
+V.Local.sQuery2.declare(String)
+V.Local.sJob.Declare(String)
+V.Local.sSuffix.Declare(String)
+V.Local.sSeq.Declare(String)
+V.Local.sName.Declare(String)
+V.Local.sValue.Declare(String)
+V.Local.sUID.Declare(String)
+V.Local.sUPID.Declare
+V.Local.sUserid.Declare(String)
+V.Local.sPrinter.Declare(String)
+V.Local.sReportName.Declare(String)
+V.Local.sTransID.Declare(String)
+V.Local.sTransSfx.Declare(String)
+V.Local.sPrefix.Declare(String)
+V.Local.sTransType.Declare(String)
+V.Local.sFromBin.Declare(String)
+V.Local.sToBin.Declare(String)
+V.Local.sPart.Declare(String)
+V.Local.sLoc.Declare(String)
+V.Local.sLot.Declare(String)
+V.Local.sHeat.Declare(String)
+V.Local.sSerial.Declare(String)
+V.Local.sLotQuantity.Declare(String)
+V.Local.sCartonQty.declare(Long)
+V.Local.sTotalQty.Declare(Float)
+V.Local.sToLot.Declare(String)
+V.Local.slastLot.Declare(String)
+V.Local.scurrentlotqty.Declare(String)
+v.Local.stoLoc.Declare(String)
+V.Local.sFromLoc.Declare(String)
+v.Local.sbHeatPass.Declare(boolean)
+v.Local.slabelname.Declare(String)
+v.Local.iRptID.Declare(String)
+v.Local.sReportpath.Declare(String)
+v.Local.bExists.Declare(Boolean)
+v.Local.sDescr1.Declare(String)
+v.Local.sSQL.Declare(String)
+v.Local.iBIRunID.Declare(Long)
+V.Local.iBILogID.Declare(Long)
+v.Local.spartprefix.Declare(String)
+
+
+V.Local.sTransID.Set(V.Passed.LINE-ID)
+V.Local.sTransSfx.Set("0000")
+Function.ODBC.Connection!Conx.Opencompanyconnection
+'load data table 
+F.Intrinsic.String.Build("select WL.TRANS_ID, WL.TRANS_TYPE, WL.USER_ID, WL.PART, WL.LOCN, WL.LOT, WL.BIN, WL.HEAT, WL.SERIAL, WL.ISSUE_QTY AS QTY_ON_LABEL , WL.DESCRIPTION AS DESCR, JH.CUSTOMER_PO AS PO_FROM_WO, WL.DESCR2 AS OLD_ERP, IE.USER_1, WL.WO_NBR AS WO, WL.WO_SUFFIX, WL.WO_SEQ from WIRELESS_LABEL WL LEFT OUTER JOIN INV_EXTRA_USR_DEF IE ON WL.PART=IE.PART_20 AND WL.LOCN=IE.PART_LOC LEFT OUTER JOIN V_JOB_HEADER JH ON WL.WO_NBR=JH.JOB AND WL.WO_SUFFIX=JH.SUFFIX WHERE TRANS_ID = '{0}'", V.Local.sTransID, V.Local.sSQL)
+	F.Data.DataTable.CreateFromSQL("SFIssue", "conx", V.Local.sSQL)
+	F.Data.DataTable.AddColumn("SFIssue", "RECEIVED_NO", "String", "OFF FALL")
+
+'get label printer
+	F.Global.Mobile.GetCustomPrinter(v.Local.sTransID,v.Local.sUPID)
+	F.Intrinsic.String.Split(V.Local.sUPID,"*!*",V.Local.sUPID)
+	Function.Global.Mobile.GetPrinterNamefromID(v.Local.sUPID(1),v.Local.sPrinter)	
+
+'get issue part number to check for Seat Track part
+F.Intrinsic.String.Concat("Select left(Field_1,8) as Field_1, Field_2, Field_3, Field_4 from WIRELESS_LINE where TRANS_ID = '",V.Local.sTransID,"'",V.Local.sQuery)
+	Function.ODBC.Connection!Conx.OpenRecordsetRO("rstWIR",V.Local.squery)	
+	V.Local.spartprefix.Set(V.ODBC.Conx!rstWIR.FieldValTrim!Field_1)
+	v.Local.sLoc.Set(V.ODBC.Conx!rstWIR.FieldValTrim!Field_3)
+	v.Local.sLotQuantity.Set(V.ODBC.Conx!rstWIR.FieldValTrim!Field_4)
+	f.Intrinsic.Math.Div(v.Local.sLotQuantity,10000,v.Local.sLotQuantity)
+	F.ODBC.Conx!rstWIR.Close
+Function.Intrinsic.Debug.Stop
+
+'check if RTS transaction is negative qty
+F.Intrinsic.Control.If(v.Local.sLotQuantity,>=,0)
+	F.Intrinsic.Control.CallSub(close)
+F.Intrinsic.Control.EndIf
+
+
+'Print label
+
+F.Global.BI.GetRunID(V.local.iBIRunID)
+'check if part RTS is seat track part
+F.Intrinsic.Control.If(v.Local.spartprefix,=,"02-9600-")
+F.Intrinsic.Control.AndIf(v.Local.sLoc,=,"20")
+	'lookup report path to verify report ID and initialize report id if one does not already exist
+	F.Intrinsic.String.Concat(V.Caller.BusintDir,"\labels\custom\","5213_RFC_PU_PO_Receipt_AERO_ST_RTS.lab",V.local.sReportpath)
+	f.Intrinsic.File.Exists(v.Local.sReportpath,v.Local.bExists)
+	F.Intrinsic.Control.If(V.Local.bExists,=,False)
+		F.Intrinsic.Debug.SetLA("RFC_PU_PO_Receipt_AERO_ST.lab Doesn't Exist")
+		F.Intrinsic.Control.CallSub(close)
+	F.Intrinsic.Control.EndIf
+	
+	F.Intrinsic.Debug.SetLA("RFC_PU_PO_Receipt_AERO_ST.lab")
+	F.Global.BI.InitializeReport("RFC ST RTS LABEL",V.local.sReportpath,V.Local.iRptID)
+	F.Global.BI.StartLogging(V.local.iBIRunID,V.Local.iRptID,-1,"",V.Local.iBILogID)
+	F.Global.BI.PrintCodesoftLabelfromdatatable(v.Local.iBIRunID,v.Local.iBILogID,"SFIssue",v.Local.sPrinter,True)
+	'Stopping Logging
+	F.Global.BI.StopLogging(V.Local.iBILogID)
+'not seat track part
+f.Intrinsic.Control.Else
+	'lookup report path to verify report ID and initialize report id if one does not already exist
+	F.Intrinsic.String.Concat(V.Caller.BusintDir,"\labels\custom\","5213_RFC_SF_Issue_Drop_1874_RTS.lab",V.local.sReportpath)
+	f.Intrinsic.File.Exists(v.Local.sReportpath,v.Local.bExists)
+	F.Intrinsic.Control.If(V.Local.bExists,=,False)
+		F.Intrinsic.Debug.SetLA("RFC_SF_Issue_Drop_1874.lab Doesn't Exist")
+		F.Intrinsic.Control.CallSub(close)
+	F.Intrinsic.Control.EndIf
+	
+	F.Intrinsic.Debug.SetLA("RFC_SF_Issue_Drop_1874")
+	F.Global.BI.InitializeReport("RFC RTS LABEL",V.local.sReportpath,V.Local.iRptID)
+	F.Global.BI.StartLogging(V.local.iBIRunID,V.Local.iRptID,-1,"",V.Local.iBILogID)
+	F.Global.BI.PrintCodesoftLabelfromdatatable(v.Local.iBIRunID,v.Local.iBILogID,"SFIssue",v.Local.sPrinter,True)
+	'Stopping Logging
+	F.Global.BI.StopLogging(V.Local.iBILogID)
+f.Intrinsic.Control.EndIf	
+	
+' Close the table we don't need anymore 
+F.Data.DataTable.Close("SFIssue")
+
+Function.Intrinsic.Control.CallSub(close)
+
+Program.Sub.Main.End
+
+
+
+Program.Sub.close.Start
+F.ODBC.Connection!Conx.Close
+F.Intrinsic.Control.End
+Program.Sub.close.End
+
+Program.Sub.Comments.Start
+${$0$}$$}$$}$12:00:00 AM
+Program.Sub.Comments.End
